@@ -40,13 +40,43 @@ VERIFY
     pytest tests/test_clean.py -v
 """
 import boto3
-
+from botocore.exceptions import ClientError
 from commands._common import parse_kv
-
 
 def _find_targets(tag_key, tag_val):
     """Return {"ec2": [...], "volume": [...]} matching tag in non-terminal state."""
-    raise NotImplementedError("TODO: implement _find_targets — see test_clean.py")
+    ec2_client = boto3.client("ec2", region_name="us-east-1")
+    targets = {"ec2": [], "volume": []}
+    
+    # 1. Tìm kiếm các EC2 instance phù hợp
+    instances_resp = ec2_client.describe_instances()
+    for reservation in instances_resp.get("Reservations", []):
+        for instance in reservation.get("Instances", []):
+            state = instance["State"]["Name"]
+            # Bỏ qua các instance đã hoặc đang giải thể 
+            if state in ["terminated", "shutting-down"]:
+                continue
+            
+            # Kiểm tra tag
+            for tag in instance.get("Tags", []):
+                if tag["Key"] == tag_key and tag["Value"] == tag_val:
+                    targets["ec2"].append(instance["InstanceId"])
+                    break
+
+    # 2. Tìm kiếm các EBS Volume phù hợp
+    volumes_resp = ec2_client.describe_volumes()
+    for vol in volumes_resp.get("Volumes", []):
+        # Đề bài yêu cầu khắt khe: CHỈ lấy các volume ở trạng thái 'available' 
+        if vol["State"] != "available":
+            continue
+            
+        # Kiểm tra tag
+        for tag in vol.get("Tags", []):
+            if tag["Key"] == tag_key and tag["Value"] == tag_val:
+                targets["volume"].append(vol["VolumeId"])
+                break
+                
+    return targets
 
 
 def run(args):
@@ -56,4 +86,41 @@ def run(args):
         args.tag    — "key=value" string (REQUIRED)
         args.apply  — bool, must be True to actually delete (default False = dry-run)
     """
-    raise NotImplementedError("TODO: implement run() — see module docstring")
+    key, val = parse_kv(args.tag)
+    targets = _find_targets(key, val)
+    
+    total_items = len(targets["ec2"]) + len(targets["volume"])
+    
+    # Nếu không tìm thấy tài nguyên nào, in thông báo ra màn hình 
+    if total_items == 0:
+        print(f"Nothing to clean for tag {key}={val}")
+        return
+
+    ec2_client = boto3.client("ec2", region_name="us-east-1")
+
+    # Kịch bản 1: DRY-RUN (Mặc định khi không có flag --apply) 
+    if not args.apply:
+        print(f"Would delete {total_items} resources matching {key}={val} (dry-run)")
+        for iid in targets["ec2"]:
+            print(f"Would terminate ec2 instance: {iid}")
+        for vid in targets["volume"]:
+            print(f"Would delete volume: {vid}")
+    
+    # Kịch bản 2: Thực hiện xóa thực tế khi truyền flag --apply 
+    else:
+        # Tiến hành hủy bỏ các EC2 instance tìm được 
+        if targets["ec2"]:
+            try:
+                ec2_client.terminate_instances(InstanceIds=targets["ec2"])
+                for iid in targets["ec2"]:
+                    print(f"Terminated ec2 instance: {iid}")
+            except ClientError as e:
+                print(f"Error terminating instances: {e}")
+                
+        # Tiến hành xóa các EBS Volume độc lập 
+        for vid in targets["volume"]:
+            try:
+                ec2_client.delete_volume(VolumeId=vid)
+                print(f"Deleted volume: {vid}")
+            except ClientError as e:
+                print(f"Error deleting volume {vid}: {e}")

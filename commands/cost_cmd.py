@@ -58,12 +58,42 @@ from datetime import date, timedelta
 
 from commands._common import parse_kv
 
+from datetime import datetime, timedelta
 
 def run(args):
-    """Entry point.
-
-    Args set by argparse:
-        args.tag   — "key=value" string (REQUIRED)
-        args.days  — int, default 7
-    """
-    raise NotImplementedError("TODO: implement cost — see module docstring")
+    client = boto3.client("ce", region_name="us-east-1")
+    
+    # Tính toán khoảng thời gian (Start & End Date) dựa vào tham số --days
+    end_date = datetime.utcnow().date()
+    start_date = end_date - timedelta(days=args.days)
+    
+    # Tách chuỗi tag "Key=Value" từ argument
+    key, val = parse_kv(args.tag)
+    
+    try:
+        response = client.get_cost_and_usage(
+            TimePeriod={
+                "Start": start_date.strftime("%Y-%m-%d"),
+                "End": end_date.strftime("%Y-%m-%d")
+            },
+            Granularity="DAILY",
+            Metrics=["UnblendedCost"],
+            Filter={
+                "Tags": {
+                    "Key": key,
+                    "Values": [val]
+                }
+            }
+        )
+        
+        # Cộng dồn chi phí từ các ngày trả về
+        total_cost = 0.0
+        for result in response.get("ResultsByTime", []):
+            amount = result["Total"]["UnblendedCost"]["Amount"]
+            total_cost += float(amount)
+            
+        # In kết quả đúng định dạng mong muốn của đề bài
+        print(f"Total cost for tag {key}={val} over last {args.days} days: ${total_cost:.2f}")
+        
+    except Exception as e:
+        print(f"Error retrieving cost data: {str(e)}")

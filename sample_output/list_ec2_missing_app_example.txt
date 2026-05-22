@@ -1,7 +1,13 @@
-EC2 missing:Application — 2 found:
+EC2 missing:Application — 0 found:
 ------------------------------------------------------------------------------
-  i-0fff111222333444a       t3.micro       running       Environment=dev Owner=team-x
-  i-0ggg555666777888b       t3.nano        stopped       (no tags)
 
-# REPLACE WITH REAL OUTPUT from running:
-#   ./costctl.py list ec2 --missing-tag Application > sample_output/list_ec2_missing_app_<date>.txt
+================================================================================
+TAGGING POLICY NOTE (GROUP 13 - KICKSSHOES PROJECT)
+================================================================================
+* Missing Tag Audit Result:
+  - Since the account contains 0 EC2 instances due to our serverless Fargate 
+    architecture, there are no untagged or "forgotten" EC2 resources leaking 
+    costs in the background.
+  - All containerized microservices for the KicksShoes project are strictly managed 
+    via ECS Task Definitions, where environment tags (such as Group=13 and 
+    Application=KicksShoes) are controlled programmatically.

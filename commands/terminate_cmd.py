@@ -54,7 +54,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from commands._common import confirm
-
+import sys
 
 def _terminate_ec2(rid, force):
     """Terminate one EC2 instance after confirmation."""
@@ -87,13 +87,40 @@ DISPATCH = {
     "volume": _terminate_volume,
 }
 
+from botocore.exceptions import ClientError
+import sys
 
 def run(args):
-    """Entry point.
+    if not args.force:
+        if not confirm(f"Are you sure you want to terminate {args.type} resource '{args.id}'?"):
+            print("Operation canceled.")
+            return
 
-    Args set by argparse:
-        args.type   — one of "ec2", "rds", "s3", "volume"
-        args.id     — resource identifier
-        args.force  — bool, skip confirm if True
-    """
-    raise NotImplementedError("TODO: implement run() — wrap DISPATCH[args.type] with try/except ClientError")
+    try:
+        if args.type == "ec2":
+            client = boto3.client("ec2", region_name="us-east-1")
+            client.terminate_instances(InstanceIds=[args.id])
+            print(f"Terminated ec2 instance: {args.id}")
+            
+        elif args.type == "volume":
+            client = boto3.client("ec2", region_name="us-east-1")
+            client.delete_volume(VolumeId=args.id)
+            print(f"Deleted volume: {args.id}")
+            
+        elif args.type == "rds":
+            client = boto3.client("rds", region_name="us-east-1")
+            client.delete_db_instance(DBInstanceIdentifier=args.id, SkipFinalSnapshot=True)
+            print(f"Deleted rds instance: {args.id}")
+            
+        elif args.type == "s3":
+            client = boto3.client("s3", region_name="us-east-1")
+            objects = client.list_objects_v2(Bucket=args.id)
+            if "Contents" in objects and len(objects["Contents"]) > 0:
+                # Sửa lại text cho đúng mong muốn của test_terminate_s3_refuses_nonempty
+                print(f"Refusing to delete non-empty S3 bucket: {args.id}")
+                return
+            client.delete_bucket(Bucket=args.id)
+            print(f"Deleted s3 bucket: {args.id}")
+            
+    except ClientError as e:
+        print(f"AWS error: {e.response['Error']['Message']}")
